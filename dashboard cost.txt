@@ -128,12 +128,118 @@ ORDER BY total_cost_usd DESC;
 
 
 
+-- Query 4: Idle Cluster Analysis
+-- Finds clusters that have been created but not used in the last 30 days.
 SELECT 
-    DATE_TRUNC('month', u.usage_date) AS month, 
+    c.cluster_id,
+    c.cluster_name,
+    c.account_id,
+    c.workspace_id,
+    c.create_time,
+    c.delete_time,
+    c.worker_count,
+    c.auto_termination_minutes
+FROM system.compute.clusters c
+LEFT JOIN system.billing.usage u 
+    ON c.workspace_id = u.workspace_id 
+    AND c.cluster_id = u.record_id
+    AND u.usage_date >= CURRENT_DATE - INTERVAL 30 DAYS
+WHERE u.record_id IS NULL
+ORDER BY c.create_time DESC;
+
+-- Query 5: Total Cost by Workspace
+-- Aggregates the total cost per workspace.
+SELECT 
+    u.workspace_id,
+    SUM(u.usage_quantity * p.pricing.default) AS total_cost,
+    p.currency_code
+FROM system.billing.usage u
+JOIN system.billing.list_prices p 
+    ON u.cloud = p.cloud 
+    AND p.usage_unit = 'DBU'
+GROUP BY u.workspace_id, p.currency_code
+ORDER BY total_cost DESC;
+
+-- Query 6: Identify Clusters Inactive for the Last 30 Days
+-- Clusters that haven't been used for any workload in the last 30 days.
+SELECT 
+    c.cluster_id,
+    c.cluster_name,
+    c.account_id,
+    c.workspace_id,
+    c.create_time,
+    c.delete_time
+FROM system.compute.clusters c
+LEFT JOIN system.billing.usage u 
+    ON c.cluster_id = u.record_id 
+    AND u.usage_date >= CURRENT_DATE - INTERVAL 30 DAYS
+WHERE u.record_id IS NULL
+ORDER BY c.create_time DESC;
+
+-- Query 7: Identify Active Clusters in the Last 30 Days
+-- Clusters that have been actively used in the last 30 days.
+SELECT 
+    u.workspace_id,
     u.cloud,
+    u.account_id,
+    u.sku_name,
+    COUNT(DISTINCT u.record_id) AS active_clusters,
     SUM(u.usage_quantity) AS total_dbus_consumed
 FROM system.billing.usage u
-WHERE u.usage_unit = 'DBU'
-GROUP BY DATE_TRUNC('month', u.usage_date), u.cloud
-ORDER BY month ASC;
+WHERE u.usage_date >= CURRENT_DATE - INTERVAL 30 DAYS
+GROUP BY u.workspace_id, u.cloud, u.account_id, u.sku_name
+ORDER BY total_dbus_consumed DESC;
+
+-- Query 8: Identify Active ETL Jobs in the Last 30 Days
+-- ETL jobs that ran successfully at least once in the last 30 days.
+SELECT 
+    j.job_id,
+    j.job_name,
+    j.workspace_id,
+    COUNT(j.run_id) AS total_runs
+FROM system.jobs.executions j
+WHERE j.status = 'SUCCESS'
+AND j.start_time >= CURRENT_DATE - INTERVAL 30 DAYS
+GROUP BY j.job_id, j.job_name, j.workspace_id
+ORDER BY total_runs DESC;
+
+-- Query 9: Identify Failed ETL Jobs in the Last 30 Days
+-- ETL jobs that failed at least once in the last 30 days.
+SELECT 
+    j.job_id,
+    j.job_name,
+    j.workspace_id,
+    COUNT(j.run_id) AS failed_runs
+FROM system.jobs.executions j
+WHERE j.status = 'FAILED'
+AND j.start_time >= CURRENT_DATE - INTERVAL 30 DAYS
+GROUP BY j.job_id, j.job_name, j.workspace_id
+ORDER BY failed_runs DESC;
+
+-- Query 10: Identify ETL Jobs and Number of Attempts Before Failure
+-- Shows how many attempts were made before a failure occurred.
+SELECT 
+    j.job_id,
+    j.job_name,
+    j.workspace_id,
+    j.run_id,
+    j.attempt_number
+FROM system.jobs.executions j
+WHERE j.status = 'FAILED'
+AND j.start_time >= CURRENT_DATE - INTERVAL 30 DAYS
+ORDER BY j.attempt_number DESC;
+
+-- Query 11: Identify ETL Jobs that Always Failed in the Last 30 Days
+-- Lists ETL jobs that failed in all their execution attempts in the last 30 days.
+SELECT 
+    j.job_id,
+    j.job_name,
+    j.workspace_id,
+    COUNT(j.run_id) AS total_attempts,
+    COUNT(CASE WHEN j.status = 'FAILED' THEN 1 END) AS failed_attempts
+FROM system.jobs.executions j
+WHERE j.start_time >= CURRENT_DATE - INTERVAL 30 DAYS
+GROUP BY j.job_id, j.job_name, j.workspace_id
+HAVING COUNT(j.run_id) = COUNT(CASE WHEN j.status = 'FAILED' THEN 1 END)
+ORDER BY total_attempts DESC;
 
