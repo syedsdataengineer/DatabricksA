@@ -128,7 +128,6 @@ ORDER BY total_cost_usd DESC;
 
 
 
-
 SELECT 
     c.cluster_id,
     c.cluster_name,
@@ -136,18 +135,17 @@ SELECT
     c.workspace_id,
     c.owned_by,
     SUM(u.usage_quantity) AS total_dbus_consumed,
-    SUM(u.usage_quantity * p.pricing:default) AS total_cost,
-    u.currency_code,
+    SUM(u.usage_quantity * p.pricing.default) AS total_cost,
+    p.currency_code,  -- Changed from u.currency_code to p.currency_code
     u.cloud
 FROM system.billing.usage u
 JOIN system.billing.list_prices p 
     ON u.cloud = p.cloud 
-    AND u.usage_unit = 'DBU'
+    AND p.usage_unit = 'DBU'  -- Ensure it's from the correct table
 JOIN system.compute.clusters c 
     ON u.workspace_id = c.workspace_id 
     AND u.account_id = c.account_id
 GROUP BY 
     c.cluster_id, c.cluster_name, c.account_id, 
-    c.workspace_id, c.owned_by, u.currency_code, u.cloud
+    c.workspace_id, c.owned_by, p.currency_code, u.cloud
 ORDER BY total_cost DESC;
-
