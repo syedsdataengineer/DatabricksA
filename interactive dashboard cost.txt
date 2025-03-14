@@ -73,3 +73,179 @@ FROM system.information_schema.billing
 WHERE workspace_name = '{{Workspace Name}}' OR '{{Workspace Name}}' IS NULL
 GROUP BY workspace_id, workspace_name
 ORDER BY total_cost_usd DESC;
+
+
+
+
+
+
+
+
+
+
+
+-- Query 1: Fetch Available Clusters for Selection
+SELECT DISTINCT cluster_name FROM system.information_schema.compute_warehouses ORDER BY cluster_name;
+
+-- Query 2: Fetch Available Workspaces for Selection
+SELECT DISTINCT workspace_name FROM system.information_schema.billing ORDER BY workspace_name;
+
+-- Query 3: Cost and DBU Consumption per Cluster (Dropdown for Selection)
+SELECT 
+    cluster_id,
+    cluster_name,
+    workspace_id,
+    workspace_name,
+    SUM(dbu_hours) AS total_dbu_hours,
+    SUM(dbu_hours * dbu_price) AS total_cost_usd,
+    COUNT(DISTINCT job_id) AS total_jobs,
+    AVG(dbu_hours) AS avg_dbu_per_job,
+    MAX(dbu_hours) AS max_dbu_per_job,
+    FORMAT_NUMBER(SUM(dbu_hours * dbu_price), 2) AS formatted_cost_usd
+FROM system.information_schema.compute_warehouses
+WHERE cluster_name IN (SELECT cluster_name FROM system.information_schema.compute_warehouses)
+GROUP BY cluster_id, cluster_name, workspace_id, workspace_name
+ORDER BY total_cost_usd DESC;
+
+-- Query 4: Cost Breakdown by ETL Pipelines (Job-Based Analysis)
+SELECT 
+    job_id,
+    job_name,
+    cluster_id,
+    cluster_name,
+    workspace_id,
+    workspace_name,
+    SUM(dbu_hours) AS total_dbu_hours,
+    SUM(dbu_hours * dbu_price) AS total_cost_usd,
+    COUNT(DISTINCT run_id) AS total_runs,
+    AVG(dbu_hours) AS avg_dbu_per_run,
+    MAX(dbu_hours) AS max_dbu_per_run,
+    FORMAT_NUMBER(SUM(dbu_hours * dbu_price), 2) AS formatted_cost_usd
+FROM system.information_schema.jobs
+WHERE cluster_name IN (SELECT cluster_name FROM system.information_schema.compute_warehouses)
+AND job_type = 'ETL'
+GROUP BY job_id, job_name, cluster_id, cluster_name, workspace_id, workspace_name
+ORDER BY total_cost_usd DESC;
+
+-- Query 5: DBU Consumption Trends (With Workspace and ETL Selection)
+SELECT 
+    DATE_TRUNC('day', start_time) AS date,
+    SUM(dbu_hours) AS daily_dbu_hours,
+    SUM(dbu_hours * dbu_price) AS daily_cost_usd,
+    COUNT(DISTINCT job_id) AS unique_jobs,
+    COUNT(DISTINCT cluster_id) AS unique_clusters,
+    FORMAT_NUMBER(SUM(dbu_hours * dbu_price), 2) AS formatted_daily_cost
+FROM system.information_schema.query_history
+WHERE workspace_name IN (SELECT workspace_name FROM system.information_schema.billing)
+AND job_id IN (SELECT job_id FROM system.information_schema.jobs WHERE job_type = 'ETL')
+GROUP BY date
+ORDER BY date DESC;
+
+-- Query 6: Idle Cluster Analysis (Optimized for Selection)
+SELECT 
+    cluster_id,
+    cluster_name,
+    workspace_id,
+    workspace_name,
+    SUM(idle_time) AS total_idle_time_minutes,
+    SUM(dbu_hours * dbu_price) AS total_cost_usd,
+    (SUM(idle_time) / SUM(active_time)) * 100 AS idle_percentage,
+    COUNT(DISTINCT job_id) AS jobs_on_cluster,
+    FORMAT_NUMBER(SUM(dbu_hours * dbu_price), 2) AS formatted_cost_usd
+FROM system.information_schema.clusters
+WHERE idle_time > 0 AND cluster_name IN (SELECT cluster_name FROM system.information_schema.compute_warehouses)
+GROUP BY cluster_id, cluster_name, workspace_id, workspace_name
+ORDER BY idle_percentage DESC;
+
+-- Query 7: Total Cost by Workspace (Dropdown Selection Enabled)
+SELECT 
+    workspace_id,
+    workspace_name,
+    SUM(dbu_hours * dbu_price) AS total_cost_usd,
+    COUNT(DISTINCT cluster_id) AS total_clusters,
+    COUNT(DISTINCT job_id) AS total_jobs,
+    AVG(dbu_hours) AS avg_dbu_per_cluster,
+    FORMAT_NUMBER(SUM(dbu_hours * dbu_price), 2) AS formatted_cost_usd
+FROM system.information_schema.billing
+WHERE workspace_name IN (SELECT workspace_name FROM system.information_schema.billing)
+GROUP BY workspace_id, workspace_name
+ORDER BY total_cost_usd DESC;
+
+-- Query 8: Identify Clusters Inactive for the Last 30 Days
+SELECT 
+    cluster_id,
+    cluster_name,
+    workspace_id,
+    workspace_name,
+    MAX(last_active_time) AS last_active_date
+FROM system.information_schema.clusters
+WHERE last_active_time < CURRENT_DATE - INTERVAL '30' DAY
+GROUP BY cluster_id, cluster_name, workspace_id, workspace_name
+ORDER BY last_active_date ASC;
+
+-- Query 9: Identify Active Clusters in the Last 30 Days
+SELECT 
+    cluster_id,
+    cluster_name,
+    workspace_id,
+    workspace_name,
+    MAX(last_active_time) AS last_active_date
+FROM system.information_schema.clusters
+WHERE last_active_time >= CURRENT_DATE - INTERVAL '30' DAY
+GROUP BY cluster_id, cluster_name, workspace_id, workspace_name
+ORDER BY last_active_date DESC;
+
+-- Query 10: Identify Active ETL Jobs in the Last 30 Days
+SELECT 
+    job_id,
+    job_name,
+    cluster_id,
+    workspace_id,
+    COUNT(run_id) AS total_runs,
+    MAX(end_time) AS last_execution_time
+FROM system.information_schema.jobs
+WHERE job_type = 'ETL' AND end_time >= CURRENT_DATE - INTERVAL '30' DAY
+GROUP BY job_id, job_name, cluster_id, workspace_id
+ORDER BY last_execution_time DESC;
+
+-- Query 11: Identify Failed ETL Jobs in the Last 30 Days
+SELECT 
+    job_id,
+    job_name,
+    cluster_id,
+    workspace_id,
+    COUNT(run_id) AS total_failed_runs,
+    MAX(end_time) AS last_failure_time
+FROM system.information_schema.jobs
+WHERE job_type = 'ETL' AND end_status = 'FAILED' AND end_time >= CURRENT_DATE - INTERVAL '30' DAY
+GROUP BY job_id, job_name, cluster_id, workspace_id
+ORDER BY total_failed_runs DESC;
+
+-- Query 12: Identify ETL Jobs and Number of Attempts Before Failure
+SELECT 
+    job_id,
+    job_name,
+    cluster_id,
+    workspace_id,
+    COUNT(run_id) AS total_attempts,
+    COUNT(CASE WHEN end_status = 'FAILED' THEN 1 END) AS total_failures,
+    ROUND((COUNT(CASE WHEN end_status = 'FAILED' THEN 1 END) / COUNT(run_id)::FLOAT) * 100, 2) AS failure_percentage
+FROM system.information_schema.jobs
+WHERE job_type = 'ETL' AND end_time >= CURRENT_DATE - INTERVAL '30' DAY
+GROUP BY job_id, job_name, cluster_id, workspace_id
+ORDER BY failure_percentage DESC;
+
+-- Query 13: Identify ETL Jobs that Always Failed in the Last 30 Days
+SELECT 
+    job_id,
+    job_name,
+    cluster_id,
+    workspace_id,
+    COUNT(run_id) AS total_runs,
+    COUNT(CASE WHEN end_status = 'FAILED' THEN 1 END) AS total_failures
+FROM system.information_schema.jobs
+WHERE job_type = 'ETL' AND end_time >= CURRENT_DATE - INTERVAL '30' DAY
+GROUP BY job_id, job_name, cluster_id, workspace_id
+HAVING COUNT(run_id) = COUNT(CASE WHEN end_status = 'FAILED' THEN 1 END)
+ORDER BY total_failures DESC;
+
