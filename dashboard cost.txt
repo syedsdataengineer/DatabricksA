@@ -129,20 +129,11 @@ ORDER BY total_cost_usd DESC;
 
 
 SELECT 
-    u.cloud,                  -- Identifies whether it's AWS, Azure, or Databricks
-    u.account_id,             -- Account associated with the cost
-    u.workspace_id,           -- Workspace consuming the resources
-    u.sku_name,               -- Service type (e.g., compute, storage, etc.)
-    SUM(u.usage_quantity) AS total_usage,  -- Total DBUs consumed
-    SUM(u.usage_quantity * p.pricing.default) AS total_cost, -- Total cost calculation
-    p.currency_code
+    DATE_TRUNC('month', u.usage_date) AS month, 
+    u.cloud,
+    SUM(u.usage_quantity) AS total_dbus_consumed
 FROM system.billing.usage u
-JOIN system.billing.list_prices p 
-    ON u.cloud = p.cloud 
-    AND p.usage_unit = 'DBU'  -- Ensures we calculate only DBU costs
-WHERE u.cloud IN ('AWS', 'AZURE', 'DATABRICKS')  -- Filters to only AWS, Azure, and Databricks
-GROUP BY 
-    u.cloud, u.account_id, u.workspace_id, u.sku_name, p.currency_code
-ORDER BY total_cost DESC;
-
+WHERE u.usage_unit = 'DBU'
+GROUP BY DATE_TRUNC('month', u.usage_date), u.cloud
+ORDER BY month ASC;
 
