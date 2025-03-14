@@ -103,3 +103,59 @@ WHERE
     AND get_json_object(p.pricing, '$.default') != ''  -- Ensures empty values don't break the query
 GROUP BY c.cluster_id, c.cluster_name, u.workspace_id, u.account_id
 ORDER BY total_cost_usd DESC;
+
+
+
+
+
+
+
+
+
+
+WITH size_types AS (
+    SELECT UPPER('2X Small') AS size_name, 9 AS size_sort, 4 AS dbu_h UNION ALL
+    SELECT UPPER('X Small') AS size_name, 8 AS size_sort, 6 AS dbu_h UNION ALL
+    SELECT UPPER('Small') AS size_name, 7 AS size_sort, 12 AS dbu_h UNION ALL
+    SELECT UPPER('Medium') AS size_name, 6 AS size_sort, 24 AS dbu_h UNION ALL
+    SELECT UPPER('Large') AS size_name, 5 AS size_sort, 48 AS dbu_h UNION ALL
+    SELECT UPPER('X Large') AS size_name, 4 AS size_sort, 80 AS dbu_h UNION ALL
+    SELECT UPPER('2X Large') AS size_name, 3 AS size_sort, 144 AS dbu_h UNION ALL
+    SELECT UPPER('3X Large') AS size_name, 2 AS size_sort, 272 AS dbu_h UNION ALL
+    SELECT UPPER('4X Large') AS size_name, 1 AS size_sort, 528 AS dbu_h
+),
+workspace_data AS (
+    SELECT 'rdm-sandbox' AS workspace_name, 1128502951240290 AS workspace_id UNION ALL
+    SELECT 'ds-sandbox' AS workspace_name, 3663651461669439 AS workspace_id UNION ALL
+    SELECT 'ds-prod' AS workspace_name, 914424276566136 AS workspace_id UNION ALL
+    SELECT 'ds-test' AS workspace_name, 1890840773832743 AS workspace_id UNION ALL
+    SELECT 'ghp-sandbox' AS workspace_name, 4014302129856109 AS workspace_id UNION ALL
+    SELECT 'adminsys-test' AS workspace_name, 706452946761103 AS workspace_id UNION ALL
+    SELECT 'dm-prod' AS workspace_name, 4180416253898875 AS workspace_id UNION ALL
+    SELECT 'genomics-core' AS workspace_name, 3743510245844015 AS workspace_id UNION ALL
+    SELECT 'dm-test' AS workspace_name, 3856934689648011 AS workspace_id UNION ALL
+    SELECT 'dm-sandbox' AS workspace_name, 2587612312334316 AS workspace_id UNION ALL
+    SELECT 'genomics-prd' AS workspace_name, 5166230743915737 AS workspace_id UNION ALL
+    SELECT 'genomics-stg' AS workspace_name, 8211650618658375 AS workspace_id
+),
+warehouse_data AS (
+    SELECT
+        CONCAT('ID-', system.compute_warehouses.workspace_id) AS workspace_name,
+        system.compute_warehouses.warehouse_id,
+        system.compute_warehouses.warehouse_name,
+        system.compute_warehouses.warehouse_type,
+        system.compute_warehouses.warehouse_size,
+        system.compute_warehouses.dbu_h,
+        system.compute_warehouses.min_clusters,
+        system.compute_warehouses.max_clusters,
+        system.compute_warehouses.dbu_h * system.compute_warehouses.max_clusters AS potential_max_dbu_h,
+        system.compute_warehouses.auto_stop_minutes,
+        system.compute_warehouses.delete_time
+    FROM system.compute_warehouses
+    LEFT OUTER JOIN workspace_data ON system.compute_warehouses.workspace_id = workspace_data.workspace_id
+    LEFT OUTER JOIN size_types ON system.compute_warehouses.warehouse_size = size_types.size_name
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY system.compute_warehouses.warehouse_id ORDER BY system.compute_warehouses.change_time DESC) = 1
+    WHERE system.compute_warehouses.delete_time IS NULL
+);
+
+SELECT * FROM warehouse_data;
