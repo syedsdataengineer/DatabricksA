@@ -1,0 +1,68 @@
+-- Query 1: Cost and DBU Consumption per Cluster
+SELECT 
+    cluster_id,
+    cluster_name,
+    workspace_id,
+    SUM(dbu_hours) AS total_dbu_hours,
+    SUM(dbu_hours * dbu_price) AS total_cost_usd,
+    COUNT(DISTINCT job_id) AS total_jobs,
+    AVG(dbu_hours) AS avg_dbu_per_job,
+    MAX(dbu_hours) AS max_dbu_per_job
+FROM system.information_schema.compute_warehouses
+GROUP BY cluster_id, cluster_name, workspace_id
+ORDER BY total_cost_usd DESC;
+
+-- Query 2: Cost Breakdown by Job (ETL Pipelines)
+SELECT 
+    job_id,
+    job_name,
+    cluster_id,
+    SUM(dbu_hours) AS total_dbu_hours,
+    SUM(dbu_hours * dbu_price) AS total_cost_usd,
+    COUNT(DISTINCT run_id) AS total_runs,
+    AVG(dbu_hours) AS avg_dbu_per_run,
+    MAX(dbu_hours) AS max_dbu_per_run
+FROM system.information_schema.jobs
+GROUP BY job_id, job_name, cluster_id
+ORDER BY total_cost_usd DESC;
+
+-- Query 3: DBU Consumption Over Time (Trends)
+SELECT 
+    DATE_TRUNC('day', start_time) AS date,
+    SUM(dbu_hours) AS daily_dbu_hours,
+    SUM(dbu_hours * dbu_price) AS daily_cost_usd,
+    COUNT(DISTINCT job_id) AS unique_jobs,
+    COUNT(DISTINCT cluster_id) AS unique_clusters
+FROM system.information_schema.query_history
+GROUP BY date
+ORDER BY date DESC;
+
+-- Query 4: Idle Cluster Analysis (Clusters with High Idle Time)
+SELECT 
+    cluster_id,
+    cluster_name,
+    workspace_id,
+    SUM(idle_time) AS total_idle_time_minutes,
+    SUM(dbu_hours * dbu_price) AS total_cost_usd,
+    (SUM(idle_time) / SUM(active_time)) * 100 AS idle_percentage,
+    COUNT(DISTINCT job_id) AS jobs_on_cluster
+FROM system.information_schema.clusters
+WHERE idle_time > 0
+GROUP BY cluster_id, cluster_name, workspace_id
+ORDER BY idle_percentage DESC;
+
+-- Query 5: Total Cost by Workspace
+SELECT 
+    workspace_id,
+    workspace_name,
+    SUM(dbu_hours * dbu_price) AS total_cost_usd,
+    COUNT(DISTINCT cluster_id) AS total_clusters,
+    COUNT(DISTINCT job_id) AS total_jobs,
+    AVG(dbu_hours) AS avg_dbu_per_cluster
+FROM system.information_schema.billing
+GROUP BY workspace_id, workspace_name
+ORDER BY total_cost_usd DESC;
+
+
+
+

@@ -1,0 +1,75 @@
+-- Query 1: Cost and DBU Consumption per Cluster (Interactive Dashboard)
+SELECT 
+    cluster_id,
+    cluster_name,
+    workspace_id,
+    workspace_name,
+    SUM(dbu_hours) AS total_dbu_hours,
+    SUM(dbu_hours * dbu_price) AS total_cost_usd,
+    COUNT(DISTINCT job_id) AS total_jobs,
+    AVG(dbu_hours) AS avg_dbu_per_job,
+    MAX(dbu_hours) AS max_dbu_per_job,
+    FORMAT_NUMBER(SUM(dbu_hours * dbu_price), 2) AS formatted_cost_usd
+FROM system.information_schema.compute_warehouses
+GROUP BY cluster_id, cluster_name, workspace_id, workspace_name
+ORDER BY total_cost_usd DESC;
+
+-- Query 2: Cost Breakdown by Job (ETL Pipelines with Filters)
+SELECT 
+    job_id,
+    job_name,
+    cluster_id,
+    cluster_name,
+    SUM(dbu_hours) AS total_dbu_hours,
+    SUM(dbu_hours * dbu_price) AS total_cost_usd,
+    COUNT(DISTINCT run_id) AS total_runs,
+    AVG(dbu_hours) AS avg_dbu_per_run,
+    MAX(dbu_hours) AS max_dbu_per_run,
+    FORMAT_NUMBER(SUM(dbu_hours * dbu_price), 2) AS formatted_cost_usd
+FROM system.information_schema.jobs
+WHERE cluster_name = '{{Cluster Name}}' OR '{{Cluster Name}}' IS NULL
+GROUP BY job_id, job_name, cluster_id, cluster_name
+ORDER BY total_cost_usd DESC;
+
+-- Query 3: DBU Consumption Trends (Time-Series Visualization)
+SELECT 
+    DATE_TRUNC('day', start_time) AS date,
+    SUM(dbu_hours) AS daily_dbu_hours,
+    SUM(dbu_hours * dbu_price) AS daily_cost_usd,
+    COUNT(DISTINCT job_id) AS unique_jobs,
+    COUNT(DISTINCT cluster_id) AS unique_clusters,
+    FORMAT_NUMBER(SUM(dbu_hours * dbu_price), 2) AS formatted_daily_cost
+FROM system.information_schema.query_history
+WHERE date BETWEEN '{{Start Date}}' AND '{{End Date}}'
+GROUP BY date
+ORDER BY date DESC;
+
+-- Query 4: Idle Cluster Analysis (Highlighting Unused Resources)
+SELECT 
+    cluster_id,
+    cluster_name,
+    workspace_id,
+    workspace_name,
+    SUM(idle_time) AS total_idle_time_minutes,
+    SUM(dbu_hours * dbu_price) AS total_cost_usd,
+    (SUM(idle_time) / SUM(active_time)) * 100 AS idle_percentage,
+    COUNT(DISTINCT job_id) AS jobs_on_cluster,
+    FORMAT_NUMBER(SUM(dbu_hours * dbu_price), 2) AS formatted_cost_usd
+FROM system.information_schema.clusters
+WHERE idle_time > 0
+GROUP BY cluster_id, cluster_name, workspace_id, workspace_name
+ORDER BY idle_percentage DESC;
+
+-- Query 5: Total Cost by Workspace (Drill-Down Enabled)
+SELECT 
+    workspace_id,
+    workspace_name,
+    SUM(dbu_hours * dbu_price) AS total_cost_usd,
+    COUNT(DISTINCT cluster_id) AS total_clusters,
+    COUNT(DISTINCT job_id) AS total_jobs,
+    AVG(dbu_hours) AS avg_dbu_per_cluster,
+    FORMAT_NUMBER(SUM(dbu_hours * dbu_price), 2) AS formatted_cost_usd
+FROM system.information_schema.billing
+WHERE workspace_name = '{{Workspace Name}}' OR '{{Workspace Name}}' IS NULL
+GROUP BY workspace_id, workspace_name
+ORDER BY total_cost_usd DESC;
