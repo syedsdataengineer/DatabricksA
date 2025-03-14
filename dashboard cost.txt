@@ -66,3 +66,36 @@ ORDER BY total_cost_usd DESC;
 
 
 
+
+
+
+SELECT 
+    c.cluster_id,
+    c.cluster_name,
+    u.workspace_id,
+    u.account_id,
+    SUM(u.usage_quantity) AS total_dbu_usage_quantity,
+    SUM(
+        CAST(u.usage_quantity AS DECIMAL(38,18)) * 
+        CAST(get_json_object(p.pricing, '$.default') AS DECIMAL(38,18))
+    ) AS total_cost_usd,
+    COUNT(DISTINCT job_id) AS total_jobs,
+    AVG(u.usage_quantity) AS avg_dbu_per_job,
+    MAX(u.usage_quantity) AS max_dbu_per_job,
+    FORMAT_NUMBER(
+        SUM(
+            CAST(u.usage_quantity AS DECIMAL(38,18)) * 
+            CAST(get_json_object(p.pricing, '$.default') AS DECIMAL(38,18))
+        ), 
+        2
+    ) AS formatted_cost_usd
+FROM system.billing.usage AS u
+JOIN system.compute.clusters AS c
+    ON u.workspace_id = c.workspace_id
+JOIN system.billing.list_prices AS p
+    ON u.account_id = p.account_id
+WHERE get_json_object(p.pricing, '$.default') IS NOT NULL -- Ensures NULL values don't cause errors
+GROUP BY c.cluster_id, c.cluster_name, u.workspace_id, u.account_id
+ORDER BY total_cost_usd DESC;
+
+
